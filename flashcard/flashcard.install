@@ -1,0 +1,98 @@
+<?php
+//$Id$
+
+/**
+ * Implementation of hook_install().
+ */
+function flashcard_install() {
+	drupal_install_schema('flashcard_cards');
+	drupal_install_schema('flashcard_units');
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function flashcard_uninstall() {
+	drupal_uninstall_schema('flashcard_cards');
+	drupal_uninstall_schema('flashcard_units');
+	// delete variables
+	// variable_del('my_variable');
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function flashcard_cards_schema() {
+	$schema['flashcard_cards'] = array(
+		'description' => t('Stores spaced repetition data.'),
+		'fields' => array(
+			'nid' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Flashcard Node Ref'),
+			),
+			'uid' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Student User Ref'),
+			),
+			'deck' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Deck status of flashcard [0-5]'),
+			),
+			'last_update' => array(
+					'type' => 'int',
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('A Unix timestamp indicating when the flashcard was last updated'),
+			),
+			'l2' => array(
+				'type' => 'char',
+				'length' => 2,
+				'not null' => TRUE,
+				'default' => 'en',
+				'description' =>	t('The language the student is trying to learn'),
+			),
+		),
+		'primary key'	=> array('nid', 'uid'),
+
+	);
+
+
+	return $schema;
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function flashcard_units_schema() {
+	$schema['flashcard_units'] = array(
+		'description' => t('Store list of units student has check out'),
+		'fields' => array(
+			'nid' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Unit Node Ref'),
+			),
+			'uid' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Student User Ref'),
+			),
+		),
+		'primary key'	=> array('nid', 'uid'),
+	);
+
+	return $schema;
+}

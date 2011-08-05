@@ -1,0 +1,5 @@
+; $ID$
+core = "6.x"
+name = "Assisted Reader"
+package = "CALL"
+description = "CALL Assisted Reader Tool"

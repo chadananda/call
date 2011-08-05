@@ -1,0 +1,1189 @@
+<?php
+
+include_once('flashcard.features.inc');
+
+/*
+ * Implements hook_block
+ */
+function flashcard_block($op = 'list', $delta = 0, $edit = array()) {
+	global $user;
+	$uid = $user->uid;
+	switch($op){
+		case 'list':
+			$blocks[0]['info'] = t('open courses');
+			$blocks[0]['cache'] = BLOCK_NO_CACHE;
+
+			$blocks[1]['info'] = t('enrolled courses');
+			$blocks[1]['cache'] = BLOCK_NO_CACHE;
+
+			$blocks[2]['info'] = t('decks in progress');
+			$blocks[2]['cache'] = BLOCK_NO_CACHE;
+
+			$blocks[3]['info'] = t('unstarted decks');
+			$blocks[3]['cache'] = BLOCK_NO_CACHE;
+
+			return $blocks;
+
+		case 'view' :
+			$block['content'] = 'None';
+			if($delta == 0){ // open courses
+       // $items = open_courses();
+				$block['content'] = registration();
+				return $block;
+			} elseif($delta == 1) { // enrolled courses
+				
+				$sql = 'SELECT n.nid, n.title, c.field_course_l2_value l2 
+								FROM {node} n, {content_type_course} c, {content_field_course_students} s 
+								WHERE n.nid = c.nid  
+								AND n.status = 1 
+								AND n.nid = s.nid 
+								AND s.field_course_students_uid = %d ';
+				$result = db_query($sql, $uid);
+
+				$items = array();
+				if($result){
+					while ($item = db_fetch_object($result)){
+						$l2 = $item->l2;
+						$title = $item->title;
+						$link = 'CALL/course/' . $item->nid . '/drop';
+						$line = $l2 . ': ' . $title. ' ' . l('drop', $link);
+						array_push($items, $line);
+					}
+				}
+				$block['content'] = theme('item_list', $items);
+				return$block;
+			} elseif ($delta == 2) {
+				$items = array();
+				$sql  = ' SELECT n.title deck, count( * ) cards 
+					FROM {content_field_course_students} c, {node} n,
+						{content_field_course_units} u,	{content_field_vocabulary} f,
+						flashcard_units d
+					WHERE c.nid = u.nid
+					AND u.field_course_units_nid = d.nid
+					AND d.uid = %d
+					AND d.nid = n.nid
+					AND f.nid = d.nid
+					AND c.field_course_students_uid = d.uid
+					GROUP BY u.field_course_units_nid
+					ORDER BY u.delta' ;
+				$result = db_query($sql, $uid);
+				if($result){
+					while ($item = db_fetch_object($result)){
+						$deck = '(' . $item->cards . ') ' . $item->deck;
+						array_push($items, $deck);
+					}
+				}
+				$block['title'] =  'Current Decks' ;
+				if (count($items)==0){
+					$block['content'] = 'None';
+				}else {
+				  $block['content'] = theme('item_list', $items);
+				}
+				return $block;
+			} elseif ($delta = 3){
+				$items = array();
+				$sql  = 'SELECT n.title deck, count(*) cards
+					FROM {content_field_course_students} s,
+							 {node} n, {content_field_course_units} d,
+							 {content_field_vocabulary} v
+					WHERE s.field_course_students_uid = %d
+					AND d.field_course_units_nid = n.nid
+					AND d.nid = s.nid
+					AND v.nid = d.field_course_units_nid
+					AND n.nid NOT IN (
+						 SELECT nid
+						 FROM {flashcard_units} u
+						 WHERE u.uid = %d) 
+					GROUP BY n.nid 
+					ORDER BY d.delta ';
+				$result = db_query($sql, $uid, $uid);
+				if($result){
+					while ($item = db_fetch_object($result)){
+						$deck = '(' . $item->cards . ') ' . $item->deck;
+						array_push($items, $deck);
+					}
+				}
+			  $block['title'] =  'Upcoming Decks' ;
+				if(count($items)==0){
+				  $block['content'] = 'None';
+				} else {
+					$block['content'] = theme('item_list', $items);
+				}
+				return $block;
+			}
+		}
+	}
+
+/*
+ * Implements hook_menu
+ */
+function flashcard_menu() {
+	$items['CALL/course/%/add'] = array(
+		'page callback' => 'course_add',
+		'page arguments' => array(2),
+		'access callback' => TRUE,
+		'type' => MENU_CALLBACK,
+	);
+
+	$items['CALL/course/%/drop'] = array(
+		'page callback' => 'course_drop',
+		'page arguments' => array(2),
+		'access callback' => TRUE,
+		'type' => MENU_CALLBACK,
+	);
+
+	$items['flashcard/quiz'] = array(
+		'title' => 'Language Lab',
+		'page callback' => 'flashcard_quiz',
+		'access callback' => 'drillform_access',
+		'access arguments' => array('access content',),
+	);
+
+	$items['mobile/flashcard/quiz'] = array(
+		'title' => 'Mobile Language Lab',
+		'page callback' => 'flashcard_quiz',
+		'access callback' => 'drillform_access',
+		'access arguments' => array('access content',),
+	);
+
+	$items['registration'] = array(
+		'title' => 'Registration',	
+		'page callback' => 'student_reg',
+		'access callback' => TRUE, // 'is_student',
+		'access arguments' => array('access content',),
+	);
+
+//	$items['mobile/registration'] = array(
+//		'title' => 'Mobile Registration',
+//		'type' => MENU_NORMAL_ITEM,
+//		'page callback' => 'registration',
+//		'access callback' => 'is_student',
+//	);
+
+	$items['library'] = array(
+		'title' => 'Mobile Library',
+		'type' => MENU_NORMAL_ITEM,
+		'page callback' => 'library_page',
+		'access callback' => 'library_access',
+	);
+
+//	$items['mobile/library'] = array(
+//		'title' => 'Library',
+//		'type' => MENU_NORMAL_ITEM,
+//		'page callback' => 'library_page',
+//		'access callback' => 'library_access',
+//	);
+
+	$items['progress'] = array(
+		'title' => 'My Progress',
+		'type' => MENU_NORMAL_ITEM,
+		'page callback' => 'progress_page',
+		'access callback' => 'progress_access',
+	);
+
+		return $items;
+}
+
+/*
+ * class registration page content
+ */
+function student_reg(){
+	global $user;
+	$uid = $user->uid;
+	// determine if student is enrolled in a course
+	$sql = 'SELECT count(*) courses 
+		FROM {node} n, {content_type_course} c, {content_field_course_students} s
+		WHERE n.nid = c.nid	AND n.status = 1
+		AND n.nid  = s.nid
+		AND s.field_course_students_uid = %d';
+	$query = db_query($sql, $uid);
+	$result = db_fetch_object($query);
+	$enrolled = $result->courses;
+	$items = array();
+
+	if($enrolled){ // list enrolled courses w/option to drop
+		$sql = ' SELECT n.nid, n.title, c.field_course_l2_value l2
+			FROM {node} n, {content_type_course} c, {content_field_course_students} s
+			WHERE n.nid = c.nid	AND n.status = 1
+			AND n.nid  = s.nid
+			AND s.field_course_students_uid = %d';
+		$result = db_query($sql, $uid);
+		while ($item = db_fetch_object($result)){
+			$l2 = $item->l2;
+			$title = $item->title;
+			$link = 'CALL/course/' . $item->nid . '/drop';
+			$line = $l2 . ': ' . $title. ' ' . l('drop', $link);
+			array_push($items, $line);
+		}
+	} else { // list open courses w/option to add
+		$sql = ' SELECT n.nid, n.title, c.field_course_l2_value l2
+			FROM {node} n, {content_type_course} c
+			WHERE n.nid = c.nid	AND n.status = 1';
+		$result = db_query($sql, $uid);
+		if($result){
+			while ($item = db_fetch_object($result)){
+				$l2 = $item->l2;
+				$title = $item->title;
+				$link = 'CALL/course/' . $item->nid . '/add';
+				$line = $l2 . ': ' . $title. ' ' . l('enroll', $link);
+				array_push($items, $line);
+			}
+		}
+	}
+	$myclasses = '<div id="courses" ><ul>';
+	foreach ($items as $item){ $myclasses .= '<li>' . $item . '</li>';}
+	$myclasses .= '</ul></div>';
+
+//	return theme('item_list', $items);
+	return 'open classes<br>' . $myclasses;
+}
+
+/*
+ * if user has student role
+ */
+function is_student(){
+	global $user;
+	$approved_roles = array('Student',);
+	if(is_array($user->roles)) {
+		if (count(array_intersect($user->roles, $approved_roles)) > 0) {
+			return TRUE;
+		} else {
+			return FALSE;
+		}
+	}
+}
+
+/*
+ * determins access to student progress page
+ */
+function progress_access(){
+	$registered = (current_course() > 0);
+	return $registered;
+}
+
+/*
+ * determins access to library page
+ */
+function library_access(){
+	global $user;
+	$uid = $user->uid;
+	
+	$sql = ' SELECT COUNT(*) enrolled	FROM {content_field_course_students} s 
+		WHERE s.nid = %d AND s.field_course_students_uid = %d ';
+	$result = db_query($sql, $course_ID, $user->uid);
+	$item = db_fetch_object($result);
+	$enrolled = $item->enrolled;
+
+	$remainingCards = card_count();
+	$access = 	$enrolled and !$remainingCards;
+
+	return $access;
+
+}
+
+/*
+ * contents of library page
+ */
+function library_page(){
+	return 'First complete the Language Lab, then check out and read a book!';
+}
+
+/*
+ * Implements hook_perm
+ */
+function flashcard_perm(){
+	return array('drill flashcards');
+}
+
+/**
+ * Course Management
+ */
+
+/*
+ * "Add Course" Page callback
+ */
+function course_add($course_ID = 0){
+	global $user;
+	$uid = $user->uid;
+	// check if valid open course
+	if(course_ID && user){
+		$sql = "SELECT COUNT(*) open  FROM {node} c WHERE c.status = 1 AND c.nid = %d";
+		$result = db_query($sql, $course_ID);
+		$item = db_fetch_object($result);
+		$open = $item->open;
+	}
+
+	// add to course
+	if(isset($open)){
+		// drop any existing courses
+		course_drop();
+		$sql = ' SELECT COUNT(*) enrollment, MAX(s.delta) delta, MAX(s.field_course_students_uid) uid
+			FROM content_field_course_students s
+			WHERE s.nid = %d ';
+		$result = db_query($sql, $course_ID);
+		
+		if($result){
+			$item = db_fetch_object($result);
+			$delta = $item->delta;
+
+			if(is_null($item->uid) &&  ($item->enrollment == 1)  ){
+				$sql = "UPDATE {content_field_course_students} ";
+				$sql .= "SET field_course_students_uid = %d ";
+				$sql .= "WHERE delta = 0 ";
+				$sql .= "AND nid = %d ";
+				$add = db_query($sql, $user->uid, $course_ID);
+			} else {
+				if(is_null($delta)) { 
+					$delta = 0;
+				} else {
+					$delta++;
+				}
+				$sql2 = "INSERT INTO {content_field_course_students} ";
+				$sql2 .= "(vid, nid, delta, field_course_students_uid) ";
+				$sql2 .= "VALUES(%d, %d, %d, %d) ";
+				$add = db_query($sql2, $course_ID, $course_ID, $delta, $user->uid );				
+			}
+				
+			if($add){
+				$return = 'Class added.';
+			} else
+				$return = 'Failed to add Course.';
+		}
+	}
+	return $return;
+}
+
+/*
+ * "Drop Course" Page callback
+ */
+function course_drop($course_ID = 0){
+	global $user;
+	$uid = $user->uid;
+	$sql = 'DELETE FROM {content_field_course_students} WHERE field_course_students_uid = %d ';
+	$result = db_query($sql, $uid);
+	if($result){
+		return 'Course dropped!';
+	}else{
+		return 'Failed to drop course!';
+	}
+}
+
+/**
+ * Flashcard Management
+ */
+
+/*
+ * returns a flashcard_cards record for drilling
+ * priority is given to higher decks
+ */
+function getFlashcard() {
+	global $user;
+	$uid = $user->uid;
+	$cardCount = card_count();
+
+	// set delay on decks
+	// $deck_0 = 0;
+	$deck_1 = 86400;			// 1 day
+	$deck_2 = 259200;			// 2 days
+	$deck_3 = 604800;			// 7 days
+	$deck_4 = 2419200;		// 28 days
+	$deck_5 = 3153600000; // 100 years
+	$result = FALSE;
+	// gather flaschards from each deck to be drilled on
+	if($cardCount > 5){
+		$course_nid = current_course();	
+		$sql =  'SELECT * FROM (
+			SELECT * FROM {flashcard_cards} WHERE deck = -1 AND uid = %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 0 AND uid = %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 1 AND uid = %d AND course_nid = %d
+			AND (UNIX_TIMESTAMP() - last_update) > %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 2 AND uid = %d AND course_nid = %d
+			AND (UNIX_TIMESTAMP() - last_update) > %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 3 AND uid = %d AND course_nid = %d
+			AND (UNIX_TIMESTAMP() - last_update) > %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 4 AND uid = %d AND course_nid = %d
+			AND (UNIX_TIMESTAMP() - last_update) > %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 5 AND uid = %d AND course_nid = %d
+			AND (UNIX_TIMESTAMP() - last_update) > %d
+		)	AS cards ORDER BY deck ASC, RAND() LIMIT 1 ';
+
+		$card = db_query($sql, $uid, $course_nid, $uid, $course_nid, $uid, $course_nid, $deck_1, $uid, $course_nid, $deck_2, $uid, $course_nid, $deck_3, $uid, $course_nid, $deck_4, $uid, $course_nid, $deck_5);
+		$result = db_fetch_object($card);
+	} else { // add another unit
+		$addUnit = addUnit();
+		if($addUnit) {
+			$result = getFlashcard();
+		} else { // no units to add or flashcards
+		}
+	}
+	return $result;
+}
+
+/*
+ * updates card's 'deck' value
+ * and sets last update to current time
+ */
+function updateFlashcard($nid = 0, $pass = FALSE) {
+	global $user;
+	$uid = $user->uid;
+
+	if($uid && $nid) {
+		$sql = 'UPDATE {flashcard_cards} ';
+		$sql .= 'SET last_update = UNIX_TIMESTAMP(), ';
+
+		if($pass){
+			$sql .= 'deck = deck + 1 ';
+		} else {
+			$sql .= 'deck = 0 ';
+		}
+
+		$sql .= 'WHERE uid = %d AND nid = %d ';
+
+		db_query($sql, $uid, $nid);
+	}
+}
+
+/*
+ * Adds additional unit and it's flashcards 
+ * to student's deck. Return false if 
+ * no units available to add
+ */
+function addUnit(){
+	global $user;
+	$uid = $user->uid;
+	$course_nid = current_course();
+	$on_deck = ondeck_count();
+
+	if($course_nid && ($on_deck < 10) ){
+		// find a unit to add from enrolled class list
+		$sql = 'SELECT field_course_units_nid deck
+			FROM {content_field_course_units}
+			WHERE nid = %d
+			AND field_course_units_nid NOT IN	(SELECT nid from {flashcard_units} WHERE uid = %d)
+			ORDER BY delta LIMIT 1';
+		$units = db_query($sql, $course_nid, $uid);
+		$unit = db_fetch_object($units);
+		if ($unit){// add a unit to the flascard_units table
+			$nid = $unit->deck;
+			$sql = 'INSERT INTO {flashcard_units} (nid, uid )	VALUES (%d, %d) ';
+			db_query($sql, $nid, $uid);
+			// get l2
+			$sql = 'SELECT field_course_l2_value l2 FROM {content_type_course} WHERE nid = %d';
+			$results = db_query($sql, $course_nid);
+			$course = db_fetch_object($results);
+			$l2 = $course->l2;
+
+			// add units flashcards to flashcard_cards table
+			$sql = 'INSERT IGNORE INTO {flashcard_cards} (nid, course_nid, uid, deck, last_update, l2)
+				SELECT f.field_vocabulary_nid, %d, %d, -2, UNIX_TIMESTAMP(), %d
+				FROM {content_type_unit} u, {content_field_vocabulary} f
+				WHERE u.nid = %d
+				AND u.nid = f.nid  ';
+			db_query($sql,$course_nid, $uid, $l2,  $nid);
+			// now make 10 available
+			$sql = 'UPDATE {flashcard_cards} SET deck = -1 WHERE deck = -2 AND uid = %d AND course_nid = %d LIMIT 10';
+			db_query($sql, $uid, $course_nid);
+			// all good
+			return 'TRUE'; 
+		} else {// unable to find unit to add
+			return 'False';
+		}
+	} elseif($on_deck > 9) {		// just promote 10 flashcards
+	  $sql = 'UPDATE {flashcard_cards} SET deck = -1 WHERE deck = -2 AND uid = %d AND course_nid = %d LIMIT 10';
+		db_query($sql, $uid, $course_nid);
+		return 'TRUE';
+	} else {// anonymous or invalud user
+		return FALSE;
+	}
+}
+
+/*
+ * Menu Callback
+ * called when user goes to flashcard/quiz
+ */
+function flashcard_quiz(){
+	$output .= drupal_get_form('flashcard_drillform');
+	return $output;
+}
+
+/*
+ * contents of flashcard drilling form
+ */
+function flashcard_drillform($form_state){
+	// add js to form header
+	drupal_add_js('https://www.google.com/jsapi', 'external','header');
+	drupal_add_js('sites/default/files/soundmanager2/script/soundmanager2.js', 'file','header');
+	$sm2INIT = "soundManager.debugMode = false; soundManager.url = '/sites/default/files/soundmanager2/swf/soundmanager2.swf'; soundManager.useFlashBlock = false;";
+  drupal_add_js($sm2INIT, 'inline','header');
+
+	if(!isset($_SESSION['fc_data'])){	$_SESSION['fc_data'] = array();}
+	$card = 0;
+	$question = 0;
+	$answers = 0;
+	$audio = 0;
+	$nid = 0;
+
+	$rebuilt = isset($_SESSION['fc_data']['question']);
+	if($rebuilt){
+		$card = $_SESSION['fc_data']['card'];
+		$question = $_SESSION['fc_data']['question'];
+		$answers = $_SESSION['fc_data']['answers'];
+		$disabled = $_SESSION['fc_data']['disabled'];
+	} else {
+		$card = getFlashcard();
+		$question = get_question($card);
+
+		if($card->deck == -1){
+      $first = array($question[0],$question[1]);
+			$rest = array($question[0]);//, 'x.png');
+			$answers = array($first, $rest, $rest, $rest);
+			$disabled = array(FALSE, TRUE, TRUE, TRUE, TRUE);
+		} else {
+		  $answers = get_answer_list($card, $question);
+		  $disabled = array(FALSE, FALSE, FALSE, FALSE, TRUE);
+		}
+		
+		$_SESSION['fc_data'] = array('card'=>$card, 'question'=>$question, 
+			'answers'=>$answers, 'disabled'=>$disabled);
+	}
+	$audio = $question[2];
+	$nid = $card->nid;
+
+	$status =  student_status();
+
+	$form['question'] = array(
+		'#value' =>  '<div id=fc-layout><div id=fc2-status >' . $status . 
+		'</div><div id=card><div id=fc-question class="'. size_class($question[3]) .'">' .
+				$question[3] . '</div>',
+		);
+
+  $course_nid = current_course();
+	$sql = 'SELECT field_course_l2_value lang FROM {content_type_course} WHERE nid = %d';
+	$results = db_query($sql, $course_nid);
+	$result = db_fetch_object($results);
+  $course_l2_lang =  $result->lang;
+
+//	if($audio){
+//		$auido_path = 'audio/' . $audio;
+//	} elseif(in_array($course_l2_lang, array ("EN","AR","ES"))){
+//		$auido_path =' http://translate.google.com/translate_tts?tl='. $course_l2_lang . '&q=' . $question[3];
+//}
+
+//drupal_set_message($auido_path, 'status');
+
+//		$player = '<div id=audio> <script>
+//		   soundManager.onload =
+//				function() {
+//					soundManager.createSound({
+//						id: \'vocabAudio\',
+//						url: \'http://translate.google.com/translate_tts?tl=en&q=test\',
+//						autoLoad: true,
+//						autoPlay: true,
+//						onload: function() {soundManager.play(\'vocabAudio\');},
+//					  onfinish: function(){this.destruct();},
+//					  volume: 50
+//				  });
+//				}
+//		};
+//		</script></div>';<script>
+//
+
+//		$audioPlayer = "
+//			var soundObject01 = soundManager.createSound({
+//			  id:'vocabSound',
+//				url: 'http://translate.google.com/translate_tts?tl=en&q=test'
+//      });
+//				soundObject01.play(); ";
+//
+//	  $form['flashcard_player'] = array(
+//				'#name' => 'fdAudio',
+//				'#value' => $audioPlayer,);
+
+//drupal_add_js($audioPlayer, 'inline','footer',FALSE, FALSE);
+
+
+	if($question[1]){ // has image
+			// make sure the imagecache is populated
+			theme('imagecache', 'flashcard', 'sites/default/files/images/' . $answers[0][1]);
+			theme('imagecache', 'flashcard', 'sites/default/files/images/' . $answers[1][1]);
+			theme('imagecache', 'flashcard', 'sites/default/files/images/' . $answers[2][1]);
+			theme('imagecache', 'flashcard', 'sites/default/files/images/' . $answers[3][1]);
+			theme('imagecache', 'flashcard', 'sites/default/files/images/x.png');
+			
+			if(isset($answers[1][1])){ //if not a review question
+
+				$form['Button1'] = array(
+					'#name' => 'Button1',
+					'#type' => 'image_button',
+					'#disabled' => $disabled[0],
+					'#return_value' => $answers[0][0],
+					'#src' => 'sites/default/files/imagecache/flashcard/images/' . $answers[0][1],
+					'#prefix' => '<table id="fc_table_p" border=0 CELLPADDING=5>
+						<tr><td WIDTH=110><div class=fc-pic >',
+					'#sufix' => '</div>',
+				);
+				$form['Button2'] = array(
+					'#type' => 'image_button',
+					'#name' => 'Button2',
+					'#disabled' => $disabled[1],
+					'#return_value' =>  $answers[1][0],
+					'#src' => 'sites/default/files/imagecache/flashcard/images/' . $answers[1][1],
+					'#prefix' => '</td><td><div class=fc-pic>',
+					'#sufix' => '</div>',
+				);
+				$form['Button3'] = array(
+					'#type' => 'image_button',
+					'#name' => 'Button3',
+					'#disabled' => $disabled[2],
+					'#return_value' =>  $answers[2][0],
+					'#src' => 'sites/default/files/imagecache/flashcard/images/' . $answers[2][1],
+					'#prefix' => '</td></tr><tr><td><div class=fc-pic>',
+					'#sufix' => '</div>',
+				);
+				$form['Button4'] = array(
+					'#type' => 'image_button',
+					'#name' => 'Button4',
+					'#disabled' => $disabled[3],
+					'#return_value' =>  $answers[3][0],
+					'#src' => 'sites/default/files/imagecache/flashcard/images/' . $answers[3][1],
+					'#prefix' => '</td><td><div class=fc-pic>',
+					'#suffix' => 	'</div></td></tr></table></div>',
+					);
+			} else { // is a review question
+					$form['Button1'] = array(
+					'#name' => 'Button1',
+					'#type' => 'image_button',
+					'#disabled' => $disabled[0],
+					'#return_value' => $answers[0][0],
+					'#src' => 'sites/default/files/imagecache/flashcard/images/' . $answers[0][1],
+					'#prefix' => '<div id=img-review-answer class=fc-pic>',
+					'#sufix' => '</div>',
+				);
+			}
+	  } else { // no image
+			// change class based on lenght of answer
+			$len_tag = array(size_class($answers[0]),
+				size_class($answers[1]),size_class($answers[2]),size_class($answers[3]));
+
+			if ($answers[0][0] != $answers[1][0]) {
+				$form['Button1'] = array(
+					'#type' => 'button',
+					'#name' => 'Button1',
+					'#value' =>  $answers[0][0],
+					'#disabled' => $disabled[0],
+					'#return_value' =>  $answers[0][0],
+					'#prefix' => '<table  id="fc_table_np" border=0 CELLPADDING=5>
+							<tr><td WIDTH=150 ALIGN=CENTER><div class=fc-nopic '. $len_tag[0] .'>',
+					'#suffix' => '</div></td></tr>',
+				);
+			$form['Button2'] = array(
+				'#type' => 'button',
+				'#name' => 'Button2',
+				'#value' =>  $answers[1][0],
+				'#disabled' => $disabled[1],
+				'#return_value' =>  $answers[1][0],
+				'#prefix' => '<tr><td ALIGN=CENTER><div class=fc-nopic '. $len_tag[1] .'>',
+				'#suffix' => '</div></td></tr>',
+			);
+			$form['Button3'] = array(
+				'#type' => 'button',
+				'#name' => 'Button3',
+				'#value' =>  $answers[2][0],
+				'#disabled' => $disabled[2],
+				'#return_value' => $answers[2][0],
+				'#prefix' => '<tr><td ALIGN=CENTER><div class=fc-nopic '. $len_tag[3] .'>',
+				'#suffix' => '</div></td></tr>',
+			);
+
+			$form['Button4'] = array(
+				'#type' => 'button',
+				'#name' => 'Button4',
+				'#value' =>  $answers[3][0],
+				'#disabled' => $disabled[3],
+				'#return_value' =>  $answers[3][0],
+				'#prefix' => '<tr><td ALIGN=CENTER><div class=fc-nopic  '. $len_tag[3] .'>',
+				'#suffix' => '</div></td></tr></table></div>',
+			);
+		} else {
+				$form['Button1'] = array(
+					'#type' => 'button',
+					'#name' => 'Button1',
+					'#value' =>  $answers[0][0],
+					'#disabled' => $disabled[0],
+					'#return_value' =>  $answers[0][0],
+					'#prefix' => '<div id=no-image-review '. $len_tag[0] .'>',
+					'#suffix' => '</div></div>',
+				);
+			}
+	}
+
+	$form['close_card'] = array('#value' => '</div>',);
+	
+  $form['nid'] =  array(
+		'#type' => 'hidden',
+		'#value' => $nid,
+  );
+
+	return $form;
+}
+
+/*
+ * returns: array($answer, $image, $audio, $question)
+ */
+function get_question($card){
+	$nid = $card->nid;
+	$l2 = $card->l2;
+	// get the content_type_flashcard record
+	$sql = 'SELECT * FROM {content_type_flashcard} WHERE nid = %d ';
+	$flashcards = db_query($sql, $nid);	
+	$flashcard = db_fetch_object($flashcards);
+	
+	$sql = 'SELECT filepath FROM files WHERE fid = %d';
+	//image
+	$image_query = db_query($sql, $flashcard->field_image_fid);	
+	$imagepath = db_fetch_object($image_query);
+	$image = end(explode('/', $imagepath->filepath));
+	// Get Question	
+	if ($l2 == 'EN') { // learning english language solution
+		$answer = $flashcard->field_en_l1_txt_value;
+		$question = $flashcard->field_lang_l1_txt_value;
+		// audio
+		$audio_query = db_query($sql, $flashcard->field_en_l2_audio_fid);	
+		$audiopath = db_fetch_object($audio_query);
+		$audio = end(explode('/', $audiopath->filepath));
+
+		} else {  // learning non-english language solution
+		$answer = $flashcard->field_lang_l1_txt_value;
+		$question =  $flashcard->field_en_l1_txt_value;
+		// audio
+		$audio_query = db_query($sql, $flashcard->field_lang_l2_audio_fid);	
+		$audiopath = db_fetch_object($audio_query);
+		$audio = end(explode('/', $audiopath->filepath));
+	}
+	return array($question, $image, $audio, $answer);
+}
+
+/*
+ * returns shuffled array of 4X: array($answer, $image)
+ */
+function get_answer_list($card, $answer){
+	global $user;
+	$uid = $user->uid;
+
+	$nid = $card->nid;
+	$l2 = $card->l2;
+	$correct_answer = $answer[0];
+	$image  = $answer[1];
+		
+	$sql =  'SELECT field_language_value language,
+		field_image_fid imagefid,
+		isnull(field_phrase_value) phrase
+		FROM {content_type_flashcard}
+		WHERE nid = %d ';
+	$fc_query = db_query($sql, $nid);
+	$flashcard =  db_fetch_object($fc_query);
+	$language = $flashcard->language;
+	$imagefid = $flashcard->imagefid;
+	$isPhrase = $flashcard->phrase;
+
+	$answer_list = array(array($correct_answer, $image));
+	
+	// Get Bogus Answers
+	$bogus_answers = 0;
+	if ($l2 == 'EN') { 
+		if($image){ // english with image
+			$sql = 'SELECT fc.field_lang_l1_txt_value answer, f.filepath path
+				FROM {content_type_flashcard} fc, {files} f
+				WHERE fc.field_lang_l1_txt_value != \'%s\'
+				AND fc.field_image_fid = f.fid
+				AND f.fid != %d
+				ORDER BY RAND() LIMIT 3';
+			$bogus_answers = db_query($sql, $correct_answer, $imagefid);
+		} else {  // english w/o image
+			$sql = 'SELECT c.field_lang_l1_txt_value answer, NULL path 
+				FROM  {content_type_flashcard} c, {flashcard_cards} f
+				WHERE c.field_language_value = \'%s\'
+				AND c.field_lang_l1_txt_value != \'%s\'
+				AND f.uid = %d
+				AND f.nid = c.nid
+				ORDER BY RAND() LIMIT 3';
+			$bogus_answers = db_query($sql, $language, $correct_answer, $uid);
+		}
+	} else { 
+		if($image){ // non-english with image
+			$sql2 = '	SELECT field_en_l1_txt_value answer, f.filepath path
+				FROM  {content_type_flashcard} fc, {files} f
+				WHERE field_language_value = \'%s\'
+				AND field_en_l1_txt_value != \'%s\'
+				AND fc.field_image_fid = f.fid
+				AND f.fid != %d
+				ORDER BY RAND() LIMIT 3';
+			$bogus_answers = db_query($sql2, $language, $correct_answer, $imagefid);
+		} else { // non-english w/o image
+			$sql2 = '	SELECT c.field_en_l1_txt_value answer, NULL path
+				FROM  {content_type_flashcard} c, {flashcard_cards} f
+				WHERE c.field_language_value = \'%s\'
+				AND c.field_en_l1_txt_value != \'%s\'
+				AND f.uid = %d
+				AND f.nid = c.nid
+				ORDER BY RAND() LIMIT 3';
+			$bogus_answers = db_query($sql2, $language, $correct_answer, $uid);
+		}
+	}
+
+		while ($bogus_answer = db_fetch_object($bogus_answers)){
+			array_push($answer_list, array($bogus_answer->answer, end(explode('/', $bogus_answer->path))));
+		}
+		shuffle($answer_list);
+		return $answer_list;
+}
+
+/*
+ * Validate the form.
+ */
+function flashcard_drillform_validate($form, &$form_state){
+	$card = $_SESSION['fc_data']['card'];
+	$nid = $card->nid;
+	// determine the button clicked, disable it, and replace the image with an X
+	if(isset($form_state['clicked_button']['#post']['Button1_x']) || isset($form_state['clicked_button']['#post']['Button1'])) {
+		$choice = $_SESSION['fc_data']['answers'][0][0];
+		$_SESSION['fc_data']['answers'][0][1] = 'x.png';
+		$_SESSION['fc_data']['disabled'][0] = TRUE;
+	}	elseif (isset($form_state['clicked_button']['#post']['Button2_x']) || isset($form_state['clicked_button']['#post']['Button2'])) {
+			$choice = $_SESSION['fc_data']['answers'][1][0];
+			$_SESSION['fc_data']['answers'][1][1] = 'x.png';
+			$_SESSION['fc_data']['disabled'][1] = TRUE;
+	} elseif (isset($form_state['clicked_button']['#post']['Button3_x']) || isset($form_state['clicked_button']['#post']['Button3'])) {
+			$choice = $_SESSION['fc_data']['answers'][2][0];
+			$_SESSION['fc_data']['answers'][2][1] = 'x.png';
+			$_SESSION['fc_data']['disabled'][2] = TRUE;
+	} elseif (isset($form_state['clicked_button']['#post']['Button4_x']) || isset($form_state['clicked_button']['#post']['Button4'])) {
+			$choice = $_SESSION['fc_data']['answers'][3][0];
+			$_SESSION['fc_data']['answers'][3][1] = 'x.png';
+			$_SESSION['fc_data']['disabled'][3] = TRUE;
+	}
+	// determine the correct answer
+	$correct_answer = $_SESSION['fc_data']['question'][0];
+	
+	if($correct_answer == $choice && $_SESSION['fc_data']['disabled'][4] ){
+		// correct on first attempt
+		unset($_SESSION['fc_data']);
+		updateFlashcard($nid, TRUE);
+	}elseif($correct_answer == $choice && !$_SESSION['fc_data']['disabled'][4]){
+		// correct after several attempts
+		unset($_SESSION['fc_data']);
+		updateFlashcard($nid, FALSE);
+	} else{
+		//flag showing at least one failed attempt
+		$_SESSION['fc_data']['disabled'][4] = FALSE;
+	}
+	// don't call the submit function
+	$form_state['rebuild'] = TRUE;
+
+}
+
+/*
+ * User's access to flashard quiz menu.
+ * is enrolled in a class, is logged in, is a student
+ */
+function drillform_access(){
+	global $user;
+	$uid = $user->uid;
+
+	$sql = 'SELECT COUNT(*) classes FROM {content_field_course_students} s
+		WHERE field_course_students_uid = %d';
+	$result = db_query($sql, $user->uid);
+	$item = db_fetch_object($result);
+	$classes = $item->classes;
+	
+	$isStudent = user_access('drill flashcards');
+
+	if($uid !=0 && $classes !=0 && $isStudent){
+		return true;
+	} else {
+		return false;
+	}
+}
+
+/*
+ * provides student datus
+ * used in flashcard form
+ */
+function student_status(){
+	global $user;
+	$uid = $user->uid;
+	$sql  = "SELECT  n.nid, n.title 
+		FROM {content_field_course_students} c, {node} n
+		WHERE c.nid = n.nid
+		AND field_course_students_uid = %d";
+	$result = db_query($sql, $uid);
+	$item = db_fetch_object($result);
+	$courseNID = $item->nid;
+	$courseName = $item->title;
+
+	$sql  = 'SELECT  count(*) as all_decks
+		FROM {content_field_course_units}
+		WHERE nid = %d ';
+	$result = db_query($sql, $courseNID);
+	$item = db_fetch_object($result);
+	$decksInCourse = $item->all_decks;
+
+	$sql  = "SELECT COUNT(*) AS started_decks ";
+	$sql .= "FROM flashcard_units ";
+	$sql .= "WHERE uid = %d ";
+	$result = db_query($sql, $user->uid);
+	$item = db_fetch_object($result);
+	$decksStarted = $item-> started_decks;
+  $remainingCards = card_count();
+
+	$status =  '<div id="CourseTitle">'. $courseName . '</div>
+		<div id="decks_txt">Decks Total / Current:
+		<div id="decks_txt2">'. $decksInCourse . ' / ' . $decksStarted . '</div></div>
+		<div id="cards_txt">Cards Remaining:
+		<div id="cards_txt2">'.  $remainingCards . '</div></div>';
+
+	return $status;
+}
+
+/*
+ *returns the length of the strign (short, medium, long, verylong)
+ */
+function size_class($str, $arabic_script=FALSE){
+  $len = strlen($str);
+  $spaces = count(explode(' ', $str));
+
+  if ($arabic_script) { $total = $spaces * 3 + $len + 1;
+  } else { $total = $spaces * 1 + $len + 1;}
+  
+	$result = 'verylong'; 
+  if ($total<10) { 
+    $result = 'short';
+  } elseif ($total<20) {
+		$result = 'medium';
+  } elseif ($total<30) {
+		$result = 'long';
+  }  
+     return $result ;
+}
+
+/*
+ * Number of cards on deck for the current user's active course
+ */
+function card_count(){
+	global $user;
+	$uid = $user->uid;
+	$course_nid = current_course();
+	
+		if($course_nid){
+		$deck_0 = 0;
+		$deck_1 = 86400;			// 1 day
+		$deck_2 = 259200;			// 2 days
+		$deck_3 = 604800;			// 7 days
+		$deck_4 = 2419200;		// 28 days
+		$deck_5 = 3153600000; // 100 years
+
+		$sql = 'SELECT  count(*) AS card_count FROM (
+			SELECT * FROM {flashcard_cards} WHERE deck = -1 AND uid = %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 0 AND uid = %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 1 AND uid = %d AND (UNIX_TIMESTAMP() - last_update) > %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 2 AND uid = %d AND (UNIX_TIMESTAMP() - last_update) > %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 3 AND uid = %d AND (UNIX_TIMESTAMP() - last_update) > %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 4 AND uid = %d AND (UNIX_TIMESTAMP() - last_update) > %d AND course_nid = %d
+			UNION ALL
+			SELECT * FROM {flashcard_cards} WHERE deck = 5 AND uid = %d AND (UNIX_TIMESTAMP() - last_update) > %d AND course_nid = %d
+			) AS cards';
+		$result = db_query($sql, $uid, $course_nid, $uid, $course_nid, $uid, $deck_1, $course_nid, $uid, $deck_2, $course_nid, $uid, $deck_3, $course_nid, $uid, $deck_4, $course_nid, $uid, $deck_5, $course_nid);
+		$item = db_fetch_object($result);
+		$remainingCards = $item->card_count;
+		return $remainingCards;
+	}else {
+		return 0;
+	}
+}
+
+/*
+ * Number of cards -2 status
+ */
+function ondeck_count(){
+	global $user;
+	$uid = $user->uid;
+	$course = current_course();
+	$sql = 'SELECT COUNT(*) ondeck FROM {flashcard_cards} 
+		      WHERE deck = -2 AND uid = %d AND course_nid = %d';
+	$result = db_query($sql,$uid, $course);
+	$list = db_fetch_object($result);
+	$ondeck = $list->ondeck;
+	return $ondeck;
+}
+
+/*
+ * Returns nid for user's currently enrolled course
+ */
+function current_course(){
+	global $user;
+	$uid = $user->uid;
+	// get current course
+	$sql = 'SELECT nid FROM {content_field_course_students} s WHERE s.field_course_students_uid = %d ';
+	$result = db_query($sql, $uid);
+	$item = db_fetch_object($result);
+	$course = $item->nid;
+	if(is_null($course)){
+		return 0;
+	} else {
+	  return $course;
+	}
+}
+
+/**
+ * Student Progress Status Section
+ */
+
+/*
+ * Called by menu for the status page
+ */
+function progress_page(){
+	$output = student_progress();
+	return $output;
+}
+
+/*
+ * Contents of Progress Page
+ */
+function student_progress(){
+	global $user;
+	$uid = $user->uid;
+	$courseID = current_course();
+
+	// course title
+	$sql = 'SELECT * FROM {node} WHERE nid = %d';
+	$result = db_query($sql, $courseID);
+	$course = db_fetch_object($result);
+	$courseTitle = $course->title;
+
+	// total cards
+	$sql = 'SELECT count(*) Cards
+		FROM  {content_field_course_units} d,
+				  {content_field_vocabulary} f
+		WHERE f.nid = d.field_course_units_nid 
+		AND d.nid = %d';
+	$result = db_query($sql, $courseID);
+	$cardInfo = db_fetch_object($result);
+	$totalCards = $cardInfo->Cards;
+
+	$sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck > 1 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$cardsInProgress = $cards->c;
+
+	// deck zero
+  $sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck = 0 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$deck00 = $cards->c;
+
+	// deck 1
+	$sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck = 1 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$deck01 = $cards->c;
+
+	// deck 2
+	$sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck = 2 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$deck02 = $cards->c;
+
+	// deck 3
+	$sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck = 3 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$deck03 = $cards->c;
+
+	// deck 4
+	$sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck = 4 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$deck04 = $cards->c;
+
+	// deck 5
+	$sql = 'SELECT count(*) c FROM {flashcard_cards} WHERE deck = 5 AND uid = %d
+		AND course_nid = %d';
+  $result = db_query($sql, $uid, $courseID);
+	$cards = db_fetch_object($result);
+	$deck05 = $cards->c;
+
+	// total Decks
+	$sql = 'SELECT COUNT(*) decks FROM {content_field_course_units} WHERE nid = %d';
+	$result = db_query($sql, $courseID);
+	$decks = db_fetch_object($result);
+	$totalDecks = $decks->decks;
+
+	// decks in progress
+	$sql = 'SELECT COUNT(*) decks 
+		FROM {flashcard_units} d , {content_field_course_units} u
+		WHERE d.nid = u.field_course_units_nid
+		AND u.nid = %d AND d.uid = %d';
+	$result = db_query($sql, $courseID, $uid);
+	$decks = db_fetch_object($result);
+	$decksInProgress = $decks->decks;
+	$cardsInProgress =
+
+	// cards to next deck
+	$tillNextDeck = ondeck_count() + card_count();
+
+  $unstartedCards = $totalCards - $cardsInProgress;
+	$chart_title = str_replace(" ", "+", "Progress in Course: " . $courseTitle);
+
+	$htmChart =	'<div id=progress>
+		<div id=course-title>Current Course: ' . $courseTitle . '</div>
+		<div id=stats-block>
+		<table id=status-table>
+		 <tr><td><div id=card-prog-title>Total Cards / Cards in Progress:</div></td>
+		    <td><div id=card-ratio>' .	$totalCards . ' / ' . $tillNextDeck. '</div></td></tr>
+		 <tr><td id=deck-prog-title>Total Decks / Decks in Progress:</div></td>
+		    <td><div id=deck-ratio>'.$totalDecks.' / '.$decksInProgress.'</div></td></tr>
+		</table>
+		</div>
+		<div id=deck-chart><div id=chart-header>Progress by Deck</div>
+		<img src="http://chart.apis.google.com/chart
+		?cht=bhs
+		&chs=600x200
+		&chxt=x,y
+		&chco=FF0000|FFFF42|DEF3BD|00A5C6|DEBDDE|006400
+		&chd=t:' . $unstartedCards . ',' . $deck01 . ',' . $deck02 .
+			',' .	$deck03 . ',' . $deck04 . ',' . $deck05 . '
+		&chxl=1:|Mastered|Deck 4|Deck 3|Deck 2|Deck 1|Unstarted
+		&chxr=0,0,8000
+		&chds=0,8000
+		&chg=12.5,0
+	"/></div></div>';
+
+  return $htmChart;
+
+}
+
+/**
+ * Sound and TTS
+ */
+
+
+function get_tts($vocab){
+	return 'http://translate.google.com/translate_tts?tl=en&q=' . $soundfile;
+}

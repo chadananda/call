@@ -1,0 +1,466 @@
+<?php
+// $ID$
+/**
+* @file
+*
+* Imports and/or updates flashcard nodes for the
+* Computer Assisted Language Learning system.
+*/
+
+function flashcard_import_menu(){
+  $items['flashcards/import'] = array(
+		'title' => 'Import Flashcards',
+	  'page callback' => 'import_page',
+		'access callback' => 'user_access',
+		'type' => MENU_NORMAL_ITEM,
+		'access arguments' => array('import flashcards',),
+	);
+
+  $items['flashcards/delete'] = array(
+		'title' => 'Delete Flashcards',
+	  'page callback' => 'delete_flashcards',
+		'access callback' => 'user_access',
+		'type' => MENU_NORMAL_ITEM,
+		'access arguments' => array('import flashcards',),
+	);
+
+  $items['flashcards/deck_builder'] = array(
+		'title' => 'Build Deck',
+	  'page callback' => 'build_deck',
+		'access callback' => 'user_access',
+		'type' => MENU_NORMAL_ITEM,
+		'access arguments' => array('import flashcards',),
+	);
+
+	 $items['flashcards/audio-import'] = array(
+		'title' => 'Import Audio',
+	  'page callback' => 'import_audio',
+		'access callback' => 'user_access',
+		'type' => MENU_NORMAL_ITEM,
+		'access arguments' => array('import flashcards',),
+	);
+
+	 $items['flashcards/image-import'] = array(
+		'title' => 'Import Images',
+	  'page callback' => 'import_images',
+		'access callback' => 'user_access',
+		'type' => MENU_NORMAL_ITEM,
+		'access arguments' => array('import flashcards',),
+	);	 
+
+	return $items;
+}
+
+function flashcard_import_perm() {
+	return array('import flashcards');
+}
+
+/*
+ * Deck builder
+ */
+function build_deck(){
+	$output .= drupal_get_form('deck_build_form');
+	return $output;
+}
+
+function deck_build_form($form_state){
+
+	$form['lang'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Language'),
+		'#size' => 2,
+		'#default_value' => 'fa',
+		'#required' => TRUE,
+	);
+
+
+	$form['deck'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Deck NID'),
+		'#size' => 12,
+		'#required' => TRUE,
+	);
+
+	$form['keys'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Flashcard Title Keys'),
+		'#size' => 60,
+		'#maxlength' => 1000,
+		'#required' => TRUE,
+	);
+
+	$form['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Append',
+	);
+
+ return $form;
+}
+
+function deck_build_form_validate($form, &$form_state){
+	$valid = (isset($form_state['values']['deck']) and isset($form_state['values']['keys'])
+					and isset($form_state['values']['lang']));
+  if(!$valid){
+		form_set_error('Build Decks', t('Valid Deck Node ID and Flashcard Keys required'));
+	}
+}
+
+function deck_build_form_submit($form, &$form_state){
+	// get deck
+	$deck_nid = $form_state['values']['deck'];
+	$deck = node_load($deck_nid);
+	$deck_vid = $deck->vid;
+	$fc_keys = $form_state['values']['keys'];
+	$keys = explode(',', $fc_keys);
+  $lang = $form_state['values']['lang'];
+	$lang = strtolower($lang);
+	
+	// get delta
+	$sql = 'SELECT max(delta) delta FROM {content_field_vocabulary} WHERE nid = \'%d\' ';
+	$result = db_query($sql, $deck_nid);
+	$node_ref = db_fetch_object($result);
+	$delta =  $node_ref->delta;
+	if(!$delta){$delta = 0;}
+
+	foreach($keys as $key){
+		$delta += 1;
+		// get flashcard nid
+		$title = strtolower($lang) . '-' . $key . '%';
+		$sql = 'SELECT nid FROM {node} WHERE type = \'flashcard\' AND title like \'%s\' LIMIT 1';
+	  $result = db_query($sql, $title);
+		$card = db_fetch_object($result);
+		$card_nid = $card->nid;
+		$sql = 'INSERT INTO {content_field_vocabulary} 
+			     (vid, nid, delta, field_vocabulary_nid)
+		        values (%d, %d, %d, %d)';
+		db_query($sql, $deck_vid, $deck_nid, $delta, $card_nid );
+	}
+// get node title
+	$sql = 	'SELECT title FROM {node} WHERE nid = %d';
+	$results = db_query($sql, $deck_nid );
+	$result = db_fetch_object($results);
+	$title = $result->title;
+	if($title){
+		drupal_set_message('Built: ' . $title . ' nid: ' . $deck_nid);
+	} else {
+		drupal_set_message('Failed to build: ' . $deck_nid, 'warning');
+	}
+	
+}
+
+/*
+ * Delete section
+ */
+
+function delete_flashcards(){
+	$output .= drupal_get_form('fcdelete_form');
+	return $output;
+}
+
+function fcdelete_form($form_state){
+
+	$form['lang_fc'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Language'),
+		'#size' => 2,
+		);
+
+	$form['start_range'] = array(
+		'#type' => 'textfield',
+		'#title' => t('Start Range'),
+		'#size' => 20,
+		);
+
+	$form['end_range'] = array(
+		'#type' => 'textfield',
+		'#title' => t('End Range'),
+		'#size' => 20,
+		);
+
+	$form['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Delete',
+		);
+
+	return $form;
+}
+
+function fcdelete_form_validate($form, &$form_state){
+	$valid = (isset($form_state['values']['start_range']) and
+		isset($form_state['values']['end_range']));
+	if($valid) {
+		$valid = (is_numeric($form_state['values']['start_range']) and
+			is_numeric($form_state['values']['end_range']));
+	}
+  if(!$valid){
+		form_set_error('Remove Flashcards', t('Valid start and end range required'));
+	}
+}
+
+function fcdelete_form_submit($form, &$form_state){
+	$start_range = $form_state['values']['start_range'];
+	$end_range = $form_state['values']['end_range'];
+	$language = $form_state['values']['lang_fc'];
+
+	$sql = 'SELECT nid FROM {node}
+          WHERE type = \'flashcard\'
+          AND SUBSTRING(title,4,6) > %d 
+          AND SUBSTRING(title,4,6) < %d
+					AND SUBSTRING(title,1,2) = \'%s\' ';
+	$result = db_query($sql, $start_range, $end_range, $language);
+
+	while($flashcard = db_fetch_object($result)){
+		$nid = $flashcard->nid;
+		node_delete($nid);
+	}
+}
+
+/*
+ * Import flashcard section
+ */
+
+function import_page(){
+	$output .= drupal_get_form('import_form');
+	return $output;
+}
+
+function import_form($form_state){
+
+  $form['#attributes']['enctype'] = 'multipart/form-data';
+
+	$form['isPhrase'] = array(
+		'#type' => 'checkbox',
+		'#title' => t('Phrases'),
+		'#size' => 2,
+		);
+
+	$form['upload'] = array(
+		'#type' => 'file',
+		'#title' => t('File to Upload'),
+		'#size' => 20,
+		);
+
+	$form['process'] = array(
+		'#type' => 'submit',
+		'#value' => 'Upload',
+		);
+	return $form;
+}
+
+function import_form_validate($form, &$form_state){
+  if(!isset($form_state['values']['upload'])){
+		form_set_error('upload', t('Path to CSV file required'));
+	}
+}
+
+function import_form_submit($form, &$form_state){
+	$validators = array(); //'file_validate_extensions' => 'csv',);
+
+	if($file = file_save_upload('upload', $validators, file_directory_path(),
+		$replace = FILE_EXISTS_REPLACE)){
+		$file_loc =  $file->filepath ;
+		$flashcards = uploadCSV($file_loc);
+		$col = count($flashcards[0]);
+		$header = array();
+		$key = '';
+		$lan = '';
+		$english = '';
+		$l2 = '';
+    $isPhrase = $form_state['values']['isPhrase'];
+		if($isPhrase){$phrase = 'Phrase';}
+
+		foreach($flashcards as $flashcard){
+			if ($flashcard[0] == 'KEY'){
+				$header = $flashcard;
+			} else {
+				$key = trim($flashcard[0]);
+				$english = $flashcard[2];
+        //for($x = 3; $x < $col; $x++){
+// just the farsi column
+$x = 3;
+					if($flashcard[$x]){
+						$lan = substr(trim($header[$x]),0,2);
+						$l2 = $flashcard[$x];
+						addFlashcard ($key, $lan, $english, $l2, $phrase);
+					}
+				//}
+			}
+		}
+	}
+	drupal_set_message('complete');
+}
+
+function uploadCSV($path){
+	$result = array();
+	if ($f_handle = fopen($path, "r")){
+	  while ($line = fgetcsv($f_handle)){$result[] = $line;}
+		fclose($f_handle);
+	}
+	return $result;
+}
+
+function addFlashcard($key, $lan, $english, $l2, $phrase){
+	global $user;
+	$uid = $user->uid;
+	$lan = strtolower(trim($lan));
+	$english = strtolower(trim($english));
+//	$l2 = strtolower(trim($l2));
+	$title = $lan . '-' . $key .  '-' . str_replace(' ','-',$english);
+// check for existing flashcard node
+	$sql = 'SELECT ifnull(max(nid),0) nid FROM {node} WHERE title = \'%s\'';
+	$query = db_query($sql, $title);
+	$cards = db_fetch_object($query);
+  $nid = $cards->nid;
+
+	if(strlen($l2)) {
+		$node = new stdClass();
+		if($nid){ $node = node_load($nid); }
+		$node->title = $title;
+		$node->created = time();
+		$node->status = 1; //published
+		$node->promote = 0;
+		$node->sticky = 0;
+		$node->type = 'flashcard';
+		$node->language = 'en';
+		$node->field_en_l1_txt[0]['value'] = $english;
+		$node->field_lang_l1_txt[0]['value'] = $l2;
+		$node->field_language[0]['value'] = $lan;
+		$node->field_phrase[0]['value'] =$phrase;
+		node_save($node);
+	}
+}
+
+/*
+ * A/V import
+ */
+
+function import_audio(){
+	global $user;
+	$uid = $user->uid;
+	$uploadFolder = 'sites/default/files/imports/audio/';
+	$destinationFolder = 'sites/default/files/audio/';
+	$fileList = scandir($uploadFolder);
+	unset($fileList[0]);
+	unset($fileList[1]);
+
+	foreach($fileList as $fileName){
+		$language = substr($fileName, 0,2);
+		$fcKey = substr($fileName, 3, 1) . substr($fileName, 5, 5);
+		$origPath = $uploadFolder . $fileName;
+		$newfileName =  $language . '-' . $fcKey . '.mp3';
+		$destPath = $destinationFolder . $newfileName;
+
+		if($language == 'en'){
+			$sql=' SELECT * FROM {node} WHERE type = \'flashcard\' AND title LIKE \'%%' . '%s'. '%%\' ';
+			$flashcards = db_query($sql, $fcKey);
+			while ($flashcard = db_fetch_object($flashcards)) { //each flashcard
+				$nid = $flashcard->nid;
+				$sql = 'SELECT * FROM {content_type_flashcard} WHERE nid = %d ORDER BY vid DESC';
+				$cTypeFlashcards = db_query($sql, $nid);
+				$cTypeFlashcard = db_fetch_object($cTypeFlashcards);
+				$hasAudio = $cTypeFlashcard->field_en_l2_audio_list;
+				if($hasAudio){
+					$fid = $cTypeFlashcard->fid;
+					$sql = 'SELECT * FROM {files} WHERE fid = %d';
+					$files = db_query($sql, $fid);
+					$file = db_fetch_object($files);
+					$destination = $file->filepath;
+					if (copy($origPath, $destPath)){print '<br>moved: ' . $origPath;}
+				} else { // no existing audio
+				  $fileSize = filesize($origPath);
+					// create a new files record
+					$sql = 'INSERT INTO {files} (uid, filename, filepath, filemime, filesize, status, timestamp)
+						VALUES (%d, \'%s\', \'%s\', \'audio/mpeg\', %d, 1, UNIX_TIMESTAMP())';
+					db_query($sql, $uid, $newfileName, $destPath, $fileSize);
+						// get the fid to update the content_type_flashcard record
+					$sql = 'SELECT MAX(fid) fid FROM {files} WHERE filename = \'%s\'';
+					$newfiles = db_query($sql, $newfileName);
+					$newfile = db_fetch_object($newfiles);
+					$fid = $newfile->fid;
+					// update the content_type_flashcard with the fid
+					$sql = 'UPDATE {content_type_flashcard} SET field_en_l2_audio_list = 1, field_en_l2_audio_fid = %d
+						WHERE nid = %d ';
+					db_query($sql, $fid, $nid);
+					if (copy($origPath, $destPath)){
+						print '<br>moved: ' . $origPath;
+					}
+				}
+			}
+		} else { // only add them to matching language fc
+//			$title = $language . '-' . $fcKey;
+			$sql=' SELECT * FROM {node} WHERE type = \'flashcard\' AND title LIKE \'%s' . '-%%\'';
+//			$flashcards = db_query($sql, $title);
+//			while ($flashcard = db_fetch_object($flashcards)){
+//				$nid = $flashcard->nid;
+//				// get the content_type_flashcard record
+//				$sql = 'SELECT * FROM {content_type_flashcard} WHERE nid = %d ORDER BY vid DESC';
+//				$cTypeFlashcards = db_query($sql, $nid);
+//				$cTypeFlashcard = db_fetch_object($cTypeFlashcards);
+//				$hasFile = $cTypeFlashcard->field_lang_l2_audio_list;
+//				if($hasFile){
+//					$fid = $cTypeFlashcard->fid;
+//					$sql = 'SELECT * FROM {files} WHERE fid = %d';
+//					$files = db_query($sql,$fid);
+//					$file = db_fetch_object($files);
+//					$destination = $file->filepath;
+//					copy($uploadFolder . $fileName, $destination );
+//				}	else { // no existing file
+//					$fileSize = filesize($uploadFolder . $fileName);
+//					// create a new files record
+//					$sql = 'INSERT INTO {files} (uid, filename, filepath, filemime, status, timestamp)
+//						VALUES (%d, \'%s\', \'%s\', \'audio/mpeg\', 1, UNIX_TIMESTAMP())';
+//					db_query($sql, $uid, $fileName, $destinationFolder . $fileName);
+//					$sql = 'SELECT MAX(fid) FROM {files} WHERE filename = \'%s\'';
+//					$files = db_query($sql,$fileName);
+//					$fid = db_fetch_object($files);
+//					// update the content_type_flashcard with the fid
+//					$sql = 'UPDATE {content_type_flashcard} SET field_lang_l2_audio_list = 1,
+//						 field_lang_l2_audio_fid = %d' where nid = %d;
+//					db_query($sql, $fid, $nid);
+//					copy($uploadFolder . $fileName, $destination );
+//				}
+//			}
+		}
+	}
+}
+
+function import_images(){
+	global $user;
+	$uid = $user->uid;
+	$uploadFolder = 'sites/default/files/imports/images/';
+	$destinationFolder = 'sites/default/files/images/';
+	$fileNames = scandir($uploadFolder);
+
+	foreach($fileNames as $fileName){
+		$text = substr($fileName,0,  strlen($fileName)-4);
+		$sourcePath = 	$uploadFolder . $fileName;
+		$destPath = $destinationFolder . $fileName;
+
+		$sql = 'SELECT * FROM {content_type_flashcard} WHERE field_en_l1_txt_value = \'%s\'';
+		$flashcards = db_query($sql, $text);
+		while ($flashcard = db_fetch_object($flashcards)){
+			$nid = $flashcard->nid;
+			if($flashcard->field_image_list){ //replace existing image
+				$fid = $flashcard->field_image_fid;
+				$sql = 'SELECT * FROM files WHERE fid = %d';
+				$files = db_query($sql, $fid);
+				$file = db_fetch_object($files);
+				copy($sourcePath, $file->filepath );
+			} else {
+				$fileSize = filesize($sourcePath);
+				// create the file record				
+				$sql = 'INSERT INTO {files} (uid, filename, filepath, filemime, filesize, status, timestamp)
+				  VALUES (%d, \'%s\', \'%s\', \'image/png\', %d, 1, UNIX_TIMESTAMP())';
+				db_query($sql, $uid, $newfileName, $destPath, $fileSize);
+				// update content_type_flashcard record
+				$sql = 'SELECT MAX(fid) fid FROM {files} WHERE filename = \'%s\'';
+				$files = db_query($sql, $fileName);
+				$file = db_fetch_object($files);
+				$fid = $file->fid;
+				$sql = 'UPDATE {content_type_flashcard} SET field_image_list = 1, field_image_fid = %d where nid = %d';
+				db_query($sql, $fid, $nid);
+				copy($sourcePath, $destPath);
+			}
+		}
+	}
+}

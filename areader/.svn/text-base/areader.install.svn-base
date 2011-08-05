@@ -1,0 +1,58 @@
+<?php
+//$Id$
+
+/**
+ * Implementation of hook_install().
+ */
+function areader_install() {
+	drupal_install_schema('areader_bookmark');
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function areader_uninstall() {
+	drupal_uninstall_schema('areader_bookmark');
+}
+
+/**
+ * Implementation of hook_schema().
+ */
+function areader_bookmark_schema() {
+	$schema['areader_bookmark'] = array(
+		'description' => t('Stores users last location.'),
+		'fields' => array(
+			'uid' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('user id'),
+			),
+			'nid' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Books node ID'),
+			),
+			'bookmark' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Last piece Visited nid'),
+			),
+			'active' => array(
+					'type' => 'int',
+					'unsigned' => TRUE,
+					'not null' => TRUE,
+					'default' => 0,
+					'description' =>	t('Currently Reading'),
+			),
+	  ),
+		'primary key'	=> array('nid', 'uid'),
+	);
+	return $schema;
+
+}

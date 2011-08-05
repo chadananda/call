@@ -1,0 +1,7 @@
+; $ID$
+core = "6.x"
+name = "Flashcard Import"
+package = "CALL"
+description = "Supports import and update of flashcard nodes"
+dependencies[] = "features"
+dependencies[] = "flashcard"

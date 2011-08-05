@@ -1,0 +1,291 @@
+<?php
+// $ID$
+/**
+* @file
+*
+* Assisted reader tool for CALL system.
+*/
+
+/**
+ * Implements hook_menu
+ */
+function areader_menu() {
+	$items['CALL/areader/%'] = array(
+		'page callback' => 'read_arBook',
+		'page arguments' => array(2),
+		'access callback' => TRUE,
+		'type' => MENUE_CALLBACK,
+	);
+
+	return $items;
+}
+
+function read_arBook($piece_nid) {
+	global $user;
+	$uid = $user->uid;
+
+	// get book nr
+	$sql = 'SELECT * FROM {content_field_ar_piece} WHERE field_ar_piece_nid = %d';
+	$query = db_query($sql, $piece_nid);
+	$piece_nr = db_fetch_object($query);
+	$book_nid = $piece_nr->nid;
+	$piece_nid = $piece_nr->field_ar_piece_nid;
+	$piece_delta = $piece_nr->delta;
+	$piece_no_display = $piece_delta +1;
+
+	// get number of pieces
+	$sql = 'SELECT count(*) count FROM {content_field_ar_piece} where nid = %d';
+	$query = db_query($sql, $book_nid);
+	$pieces = db_fetch_object($query);
+  $pieces_count = $pieces->count;
+	
+	// get book nodeobject
+	$sql = 'SELECT * FROM {node} WHERE nid = %d';
+	$query = db_query($sql, $book_nid);
+	$book_object = db_fetch_object($query);
+	$book_title = $book_object->title;
+
+	// get text
+	$sql = 'SELECT body FROM {node_revisions} WHERE nid = %d';
+	$query = db_query($sql, $piece_nid);
+	$body = db_fetch_object($query);
+	$piece_text = $body->body;
+
+	$prev_peice_id = $piece_nid;
+	if($piece_delta) {
+		$prev_piece_delta = $piece_delta - 1;
+		$sql = 'SELECT field_ar_piece_nid  FROM {content_field_ar_piece} WHERE nid = %d and delta = %d';
+		$query = db_query($sql, $book_nid, $prev_piece_delta);
+		$prev_piece = db_fetch_object($query);
+		$prev_piece_id = $prev_piece->field_ar_piece_nid;
+	}
+//
+	$next_peice_id = $piece_nid;
+	if($piece_no_display < $pieces_count) {
+		$next_piece_delta = $piece_delta + 1;
+		$sql = 'SELECT field_ar_piece_nid  FROM {content_field_ar_piece} WHERE nid = %d and delta = %d';
+		$query = db_query($sql, $book_nid, $next_piece_delta);
+		$next_piece = db_fetch_object($query);
+		$next_piece_id = $next_piece->field_ar_piece_nid;
+	}
+// sound info
+	$soundFile = 'http://dl.dropbox.com/u/1895436/lof-real.mp3';
+	$soundStart = 0;
+	$soundEnd = 30000;
+
+	$sql = 'SELECT * FROM {content_type_ar_piece} WHERE nid = %d';
+	$query = db_query($sql, $piece_nid);
+	$sound_object = db_fetch_object($query);
+	$soundStart = $sound_object->field_audio_start_value;
+	$soundEnd = $sound_object->field_audio_end_value;
+
+
+
+
+
+	drupal_set_html_head('<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.5.1/jquery.min.js"></script>');
+	drupal_set_html_head('<script type="text/javascript">  var $jq = jQuery.noConflict(); </script> ');
+  drupal_set_html_head('<script type="text/javascript" src="http://call:8081/sites/default/files/soundmanager2/script/soundmanager2.js"></script>');
+  drupal_set_html_head('<script src="https://www.google.com/jsapi"></script>');
+  
+	drupal_set_html_head('<script type="text/javascript">
+     soundManager.debugMode = false;
+     soundManager.url = \'http://call:8081/sites/default/files/soundmanager2/swf/soundmanager2.swf\';
+     soundManager.useFlashBlock = false;</script>'
+	);
+
+	// main text
+	$reader_page = '<div class=mytext>' . $piece_text . '</div>';
+	// dictionary
+	$reader_page .= '<div id="tran_wrapper"><div id="tran_head">Dictionary</div><div id="trans"> </div></div>';
+	// book info
+	$reader_page .=  '<div id="book"><h3>' . $book_title . '</h3><div id="parts">Page: ' .
+	  $piece_no_display . " of " . $pieces_count . "</div></div>";
+ // nav buttons
+	$reader_page .= '<div id="nav"><a HREF="' . $prev_piece_id .
+	'"> <img src=\'/sites/default/files/iphone/button2.png\'></a><a HREF="' . $next_piece_id .
+	'"><img src="/sites/default/files/iphone/button1.png"/></a></div>';
+
+$reader_page .= getDictionaryScript();
+$reader_page .= getTextSoundScript($soundFile, $soundStart, $soundEnd);
+
+
+  return $reader_page;
+}
+
+function getDictionaryScript() {
+
+	$result = '<script>
+ google.load("language", "1");
+
+$jq(".mytext").click(function(e) {
+	function getWord(hit_elem) {
+		var hit_word = \'\';
+    hit_elem = $jq(hit_elem);
+//text contents of hit element
+    var text_nodes = hit_elem.contents().filter(function(){
+	    return this.nodeType == Node.TEXT_NODE && this.nodeValue.match(/[a-zA-Z]{2,}/)
+    });
+//bunch of text under cursor? break it into words
+    if (text_nodes.length > 0) { var original_content = hit_elem.clone();
+//wrap every word in every node in a dom element
+    text_nodes.replaceWith(function(i) {return $jq(this).text().replace(/([a-zA-Z-]*)/g, "<word>$1</word>")});
+//get the exact word under cursor
+     var hit_word_elem = document.elementFromPoint(e.clientX, e.clientY);
+		 if (hit_word_elem.nodeName != \'WORD\') { console.log("missed!");
+     } else {
+       hit_word = $jq(hit_word_elem).text();
+       console.log("got it: "+hit_word);
+     }
+     hit_elem.replaceWith(original_content);
+   }
+   return hit_word;
+	}
+
+  if (!e){ var e = window.event;}
+  var myword = getWord(document.elementFromPoint(e.clientX, e.clientY));
+	if(myword){ gtranslate(myword, "en", "fa");}
+});
+function gtranslate(myword, l1, l2){
+	 google.language.translate(myword, l1, l2, function(result) {
+		if (result.translation) {
+				document.getElementById("trans").innerHTML=result.translation;
+
+			} else {
+				document.getElementById("trans").innerHTML=myword;
+			}
+	});
+	google.language.translate(myword, l2, l1, null);
+	playSound(myword);
+
+}
+
+function playSound(soundfile) {
+		soundManager.createSound({
+			id: \'mySound\',
+			url: \'http://translate.google.com/translate_tts?tl=en&q=\'+soundfile,
+			autoLoad: true,
+			autoPlay: false,
+			onload: function() {
+				soundManager.play(\'mySound\');
+			},
+			onfinish: function(){
+				this.destruct();
+			},
+			volume: 50
+		});
+}
+';
+
+return $result;
+}
+
+function getTextSoundScript($file, $soundStart, $soundEnd){
+	$result = '	soundManager.onload = function() {
+			soundManager.createSound({
+			  id: \'textSound\',
+				url: \'' .$file . '\',
+				autoLoad: true,
+				autoPlay: false,
+				onload: function() {
+				  this.setPosition(' . $soundStart . ');
+  			  if(' . $soundEnd . ' > 0){this.onposition(' . $soundEnd . ', function(){console.log(\'made it\'); this.destruct()});}
+					soundManager.play(\'textSound\');
+				},
+				onfinish: function(){this.destruct();},
+				volume: 50
+			});
+	  };
+</script>';
+  
+	return $result;
+
+}
+
+
+
+/**
+ * Menu Callback
+ * called when user goes to /CALL/areader/%
+ */
+function areader_form($form_state) {
+	global $user;
+	$uid = $user->uid;
+	// get current bookmark
+	$sql = 'SELECT * FROM {areader_bookmark} WHERE uid = %d and active = 1';
+	$query = db_query($sql, $uid);
+	$bookmark_nr = db_fetch_object($query);
+	$book_NID = $bookmark_nr->nid;
+	$piece_NID = $bookmark_nr->bookmark;
+
+
+	if(!$piece_NID){// first time reading this book
+		$sql = 'SELECT field_ar_piece_nid bookmark FROM {content_field_ar_piece} WHERE delta = 0';
+		$query = db_query($sql);
+		$bookmark = db_fetch_object($query);
+		$piece_NID = $bookmark->bookmark;
+	}
+	$sql = 'SELECT count(*) pieces FROM {content_field_ar_piece} WHERE nid = %d';
+	$query = db_query($sql, $book_NID);
+	$pieces = db_fetch_object($query);
+	$totalPieces = $pieces->pieces;
+	
+  $sql = 'SELECT delta from {content_field_ar_piece} where field_ar_piece_nid = %d';
+  $query = db_query($sql, $bookmark);
+  $piece = db_fetch_object($query);
+  $piece_delta = $piece->delta;
+
+	$prevPiece = $piece_delta - 1;
+	$nextPiece = pieceNo + 1;
+
+	$sql = 'SELECT body FROM {node_revisions} WHERE nid = %d';
+	$query = db_query($sql, $piece_NID);
+	$body = db_fetch_object($query);
+	$text = $body->body;
+	$text = '<div class=mytext>' . $text . '</div>';
+	
+
+	$sql = 'SELECT * FROM {node} WHERE nid = %d';
+	$query = db_query($sql, $book_NID);
+  $bookNode = db_fetch_object($query);
+	$bookTitle = $bookNode->title;
+	$book = "<div id=\"book\"><h3>" . $bookTitle . 
+	  "</h3><div id=\"parts\">Page: " .
+	  ($piece_delta +1) . " of " . $totalPieces . "</div></div>";
+
+	$form['piece'] = array('#value' => $text,);
+	$form['book_info'] = array('#value' => $book,);
+	
+	$dictionary_block = '<div id="tran_wrapper"><div id="tran_head">Dictionary</div><div id="trans"> </div></div>';
+	
+	$form['trans_block'] = array('#value' => $dictionary_block,);
+	$form['audio_block'] = array('#value' => '<div id="audio"> </div>',);
+
+	$prev_piece_delta = $piece_delta - 1;
+	$prev_piece_id = $piece_NID;
+	if($piece_delta) {
+		$prev_piece_delta = $piece_delta - 1;
+		$sql = 'SELECT field_ar_piece_nid  FROM {content_field_ar_piece} WHERE nid = %d and delta = %d';
+		$query = db_query($sql, $book_NID, $prev_piece_delta);
+		$prev_piece = db_fetch_object($query);
+		$prev_piece_id = $prev->field_ar_piece_nid;
+	} 
+
+	$next_piece_delta = $piece_delta + 1;
+	$next_piece_ID = $piece_NID;
+	if($totalPieces - ($next_piece_delta + 1)) {
+		$sql = 'SELECT field_ar_piece_nid  FROM {content_field_ar_piece} WHERE nid = %d and delta = %d';
+		$query = db_query($sql, $book_NID, $next_piece_delta);
+		$next_piece = db_fetch_object($query);
+		$next_piece_id = $next_piece->field_ar_piece_nid;
+	} 
+
+$mynav_block = '<div id="nav"><a HREF="' . $prev_piece_id .
+	'"> <img src=\'/sites/default/files/iphone/button2.png\'></a><a HREF="' . $next_piece_id .
+	'"><img src="/sites/default/files/iphone/button1.png"/></a></div>';
+
+$form['mynav_block'] = array('#value' => $mynav_block,);
+
+
+	return $form;
+}

@@ -1,0 +1,59 @@
+K 25
+svn:wc:ra_dav:version-url
+V 47
+/svn/call-flashcard/!svn/ver/20/trunk/flashcard
+END
+flashcard.info
+K 25
+svn:wc:ra_dav:version-url
+V 61
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.info
+END
+fcAudio.js
+K 25
+svn:wc:ra_dav:version-url
+V 57
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/fcAudio.js
+END
+flashcard.features.content.inc
+K 25
+svn:wc:ra_dav:version-url
+V 77
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.features.content.inc
+END
+flashcard.features.taxonomy.inc
+K 25
+svn:wc:ra_dav:version-url
+V 78
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.features.taxonomy.inc
+END
+flashcard.features.user_role.inc
+K 25
+svn:wc:ra_dav:version-url
+V 79
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.features.user_role.inc
+END
+flashcard.features.fieldgroup.inc
+K 25
+svn:wc:ra_dav:version-url
+V 80
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.features.fieldgroup.inc
+END
+flashcard.module
+K 25
+svn:wc:ra_dav:version-url
+V 64
+/svn/call-flashcard/!svn/ver/20/trunk/flashcard/flashcard.module
+END
+flashcard.features.inc
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.features.inc
+END
+flashcard.install
+K 25
+svn:wc:ra_dav:version-url
+V 64
+/svn/call-flashcard/!svn/ver/3/trunk/flashcard/flashcard.install
+END

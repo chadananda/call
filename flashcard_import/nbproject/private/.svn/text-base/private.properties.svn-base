@@ -1,0 +1,8 @@
+copy.src.files=false
+copy.src.target=/var/www/PhpProject1
+index.file=index.php
+remote.connection=daniel
+remote.directory=/Flashcard Import
+remote.upload=MANUALLY
+run.as=REMOTE
+url=http://CALL:8081/
